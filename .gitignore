@@ -6,7 +6,7 @@ dist/
 wheels/
 *.egg-info
 data_store/
-
+voice_module/saved_wav2vec2_model/
 # Virtual environments
 .venv
 .env
