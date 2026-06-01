@@ -16,3 +16,9 @@ accelerate
 xgboost
 lightgbm
 python-multipart
+huggingface_hub
+langchain
+langchain-core
+langchain-google-genai
+python-dotenv
+httpx

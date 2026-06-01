@@ -24,7 +24,11 @@ from transformers import Wav2Vec2Processor, Wav2Vec2ForSequenceClassification
 router = APIRouter()
 
 # ── Model path — update before deploying ────────────────────────
-MODEL_PATH = Path(__file__).parent / "saved_wav2vec2_model"
+MODEL_PATH = "Moss2110/astromind-wav2vec2"
+print("Loading AI Model weights...")
+processor = Wav2Vec2Processor.from_pretrained(MODEL_PATH)
+model = Wav2Vec2ForSequenceClassification.from_pretrained(MODEL_PATH)
+print("Model loaded successfully!")
 
 TARGET_SR    = 16000
 CHUNK_DUR    = 10           # seconds per inference chunk
@@ -33,10 +37,9 @@ MAX_CHUNKS   = 3           # ensemble over N chunks
 # ── Lazy-loaded singleton (loaded once on first request) ─────────
 @lru_cache(maxsize=1)
 def get_model():
-    if not MODEL_PATH.exists():
-        raise RuntimeError(f"Model not found at {MODEL_PATH}. Run the notebook first.")
-    processor = Wav2Vec2Processor.from_pretrained(str(MODEL_PATH))
-    model     = Wav2Vec2ForSequenceClassification.from_pretrained(str(MODEL_PATH))
+    # Removed the local file system check because Hugging Face will fetch it automatically
+    processor = Wav2Vec2Processor.from_pretrained(MODEL_PATH)
+    model     = Wav2Vec2ForSequenceClassification.from_pretrained(MODEL_PATH)
     model.eval()
     return processor, model
 
