@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Amatic+SC:wght@400;700&family=Bungee&family=Shadows+Into+Light&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Iosevka+Charon:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-handwriting: "Bungee", sans-serif;
+  --font-charon: "Iosevka Charon", monospace;
+}
+
+/* Hide scrollbars for the feature panels while maintaining scrolling functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Glassmorphism panel styling */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@keyframes fadeInUpBlur {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(8px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.animate-deep-breath {
+  animation: fadeInUpBlur 2.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* Custom radial gradient fallback since it's not native in standard Tailwind utilities */
+.bg-radial-vignette {
+  background: radial-gradient(circle, transparent 20%, rgba(2, 6, 23, 0.8) 80%);
+}
+
+/* Glass panel fallback */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.3);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.transition-growth {
+  transition: height 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+}
