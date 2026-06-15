@@ -10,7 +10,7 @@ const HF_SPACE_URL = "https://moss2110-astromind.hf.space";
 
 // 2. Clear Feature Subrouters
 const LLM_API_URL = `${HF_SPACE_URL}/llm`;     // Maps /llm/start_session, /llm/process_response
-const VOICE_API_URL = `${HF_SPACE_URL}/voice`;   // Maps /voice/diagnose
+const VOICE_API_URL = `http://127.0.0.1:8000`;   // Maps /voice/diagnose
 const ECHOES_API_URL = "http://127.0.0.1:8003";  // Local physics-delay node
 
 const AstroMindHome = () => {
@@ -168,87 +168,146 @@ const AstroMindHome = () => {
   };
 
   // Speech to Text (Voice Input) Engine + HF Space Audio Capture Muxer
+  // Pure Web Audio API WAV Capture & Transmission Engine
   const startVoiceInput = async () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice recognition is not supported in this browser. Please try Chrome or Safari.");
-      return;
-    }
-
     try {
-      // Prompt for audio physical track allocation dynamically
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const source = audioContext.createMediaStreamSource(audioStream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-      audioChunksRef.current = [];
-      mediaRecorderRef.current = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
+      const leftChannelBuffer = [];
+      setIsListening(true);
+      window.speechSynthesis.cancel();
 
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+      processor.onaudioprocess = (event) => {
+        const inputData = event.inputBuffer.getChannelData(0);
+        leftChannelBuffer.push(new Float32Array(inputData));
       };
 
-      // Handle raw stream upload on capture completion sequence
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      // Provide a way to intercept the Web Speech API transcription loop cleanly
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        setInputMessage(event.results[0][0].transcript);
+      };
+
+      recognition.onerror = () => setIsListening(false);
+
+      recognition.onend = async () => {
+        setIsListening(false);
+
+        // 1. Disconnect and freeze the live audio capture pipeline
+        processor.disconnect();
+        source.disconnect();
+        audioStream.getTracks().forEach(track => track.stop());
+        await audioContext.close();
+
+        // 2. Flatten our captured float arrays into a unified sequence
+        const flattenedBuffer = flattenChannelBuffers(leftChannelBuffer);
+
+        // 3. Compile a true standard 16-bit PCM WAV Binary ArrayBuffer
+        const wavBuffer = createWavDataView(flattenedBuffer, audioContext.sampleRate);
+        const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+        // 4. Ship the raw valid WAV payload down the pipe
         const voiceFormData = new FormData();
         voiceFormData.append("file", audioBlob, "cabin_transmission.wav");
 
-        console.log("Transmitting voice audio packet down to Hugging Face Space...");
+        console.log("Transmitting verified native WAV audio packet to backend...");
         try {
           const hfResponse = await fetch(`${VOICE_API_URL}/diagnose`, {
             method: "POST",
             body: voiceFormData
           });
 
-          if (!hfResponse.ok) throw new Error(`HF returned telemetry status code: ${hfResponse.status}`);
+          if (!hfResponse.ok) {
+            const errorDetails = await hfResponse.json();
+            console.error("❌ Validation failure tracking:", errorDetails);
+            return;
+          }
+
           const hfDiagnosticData = await hfResponse.json();
-          console.log("🌲 [HF CLOUD VOX ANALYSIS SUCCESS]:", hfDiagnosticData);
-
+          console.log("🌲 [VOX ANALYSIS SUCCESS]:", hfDiagnosticData);
         } catch (hfErr) {
-          console.error("Hugging Face diagnostic uplink processing failure:", hfErr);
+          console.error("Diagnostic uplink processing failure:", hfErr);
         }
-
-        // Securely free physical hardware pins from tracking loops
-        audioStream.getTracks().forEach(track => track.stop());
-      };
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.lang = 'en-US';
-      recognition.interimResults = false;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        window.speechSynthesis.cancel();
-        mediaRecorderRef.current.start();
-      };
-
-      recognition.onerror = (event) => {
-        console.error("Speech recognition framework error", event.error);
-        setIsListening(false);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-          mediaRecorderRef.current.stop();
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-          mediaRecorderRef.current.stop();
-        }
-      };
-
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInputMessage(transcript);
       };
 
       recognition.start();
 
     } catch (deviceErr) {
-      console.error("Failed to safely secure hardware microphone parameters:", deviceErr);
-      alert("Could not access standard capture vitals. Verify media flag attributes.");
+      console.error("Failed to securely initiate standard capture audio parameters:", deviceErr);
+      alert("Could not access physical capture vitals.");
+    }
+  };
+
+  // --- WAV AUDIO COMPILATION HELPER FUNCTIONS ---
+
+  const flattenChannelBuffers = (bufferList) => {
+    let totalLength = 0;
+    for (let i = 0; i < bufferList.length; i++) {
+      totalLength += bufferList[i].length;
+    }
+    const result = new Float32Array(totalLength);
+    let offset = 0;
+    for (let i = 0; i < bufferList.length; i++) {
+      result.set(bufferList[i], offset);
+      offset += bufferList[i].length;
+    }
+    return result;
+  };
+
+  const createWavDataView = (samples, sampleRate) => {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+
+    /* RIFF identifier */
+    writeString(view, 0, 'RIFF');
+    /* file length */
+    view.setUint32(4, 36 + samples.length * 2, true);
+    /* RIFF type */
+    writeString(view, 8, 'WAVE');
+    /* format chunk identifier */
+    writeString(view, 12, 'fmt ');
+    /* format chunk length */
+    view.setUint32(16, 16, true);
+    /* sample format (raw PCM = 1) */
+    view.setUint16(20, 1, true);
+    /* channel count (Mono = 1) */
+    view.setUint16(22, 1, true);
+    /* sample rate */
+    view.setUint32(24, sampleRate, true);
+    /* byte rate (sample rate * block align) */
+    view.setUint32(28, sampleRate * 2, true);
+    /* block align (channel count * bytes per sample) */
+    view.setUint16(32, 2, true);
+    /* bits per sample (16-bit PCM) */
+    view.setUint16(34, 16, true);
+    /* data chunk identifier */
+    writeString(view, 36, 'data');
+    /* data chunk length */
+    view.setUint32(40, samples.length * 2, true);
+
+    // Write actual PCM audio sequence samples down into the data array view
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++, offset += 2) {
+      let s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+
+    return buffer;
+  };
+
+  const writeString = (view, offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
     }
   };
 
