@@ -52,6 +52,8 @@ const AstroMindHome = () => {
   const chatEndRef = useRef(null);
   const [isListening, setIsListening] = useState(false);
 
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState(null);
+
   // 🛰️ Echoes Communication State
   const [echoesInbox, setEchoesInbox] = useState([]);
   const [transitCount, setTransitCount] = useState(0);
@@ -116,16 +118,48 @@ const AstroMindHome = () => {
     }
   }, [showEchoesInbox]);
 
-  // Handle live form pipeline transitions to llm_api processing
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
     if (!inputMessage.trim() || !sessionId) return;
 
     const userRawText = inputMessage;
+
+    // Add the user message immediately to the UI viewport grid layout
     setMessages(prev => [...prev, { id: Date.now(), sender: 'user', text: userRawText }]);
     setInputMessage('');
     setIsAiTyping(true);
 
+    // --- PHASE 1: CONDITIONAL AUDIO ROUTING ---
+    if (recordedAudioBlob) {
+      console.log("🚀 Transmit clicked with audio buffer active. Routing file to diagnostics...");
+
+      const voiceFormData = new FormData();
+      // Use our stored state blob directly
+      voiceFormData.append("file", recordedAudioBlob, "cabin_transmission.wav");
+
+      try {
+        const hfResponse = await fetch(`${VOICE_API_URL}/diagnose`, {
+          method: "POST",
+          body: voiceFormData
+        });
+
+        if (!hfResponse.ok) {
+          const errorDetails = await hfResponse.json();
+          console.error("❌ Voice diagnostics rejected payload layout:", errorDetails);
+        } else {
+          const hfDiagnosticData = await hfResponse.json();
+          console.log("🌲 [VOX ANALYSIS SUCCESS]:", hfDiagnosticData);
+          // Optional: Map hfDiagnosticData values directly to your layout metric flags here!
+        }
+      } catch (hfErr) {
+        console.error("Diagnostic uplink processing failure:", hfErr);
+      } finally {
+        // Clear the state buffer so subsequent standard text inputs don't re-send this recording
+        setRecordedAudioBlob(null);
+      }
+    }
+
+    // --- PHASE 2: STANDARD LLM CORE TEXT INGESTION (Unchanged) ---
     try {
       const response = await fetch(`${LLM_API_URL}/process_response`, {
         method: "POST",
@@ -202,41 +236,28 @@ const AstroMindHome = () => {
 
       recognition.onend = async () => {
         setIsListening(false);
+        console.log("🎙️ Speech capture finished. WAV compiled and buffered for transmission.");
 
-        // 1. Disconnect and freeze the live audio capture pipeline
-        processor.disconnect();
-        source.disconnect();
-        audioStream.getTracks().forEach(track => track.stop());
-        await audioContext.close();
-
-        // 2. Flatten our captured float arrays into a unified sequence
-        const flattenedBuffer = flattenChannelBuffers(leftChannelBuffer);
-
-        // 3. Compile a true standard 16-bit PCM WAV Binary ArrayBuffer
-        const wavBuffer = createWavDataView(flattenedBuffer, audioContext.sampleRate);
-        const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-
-        // 4. Ship the raw valid WAV payload down the pipe
-        const voiceFormData = new FormData();
-        voiceFormData.append("file", audioBlob, "cabin_transmission.wav");
-
-        console.log("Transmitting verified native WAV audio packet to backend...");
         try {
-          const hfResponse = await fetch(`${VOICE_API_URL}/diagnose`, {
-            method: "POST",
-            body: voiceFormData
-          });
+          const sampleRate = audioContext.sampleRate;
+          const flattenedBuffer = flattenChannelBuffers(leftChannelBuffer);
 
-          if (!hfResponse.ok) {
-            const errorDetails = await hfResponse.json();
-            console.error("❌ Validation failure tracking:", errorDetails);
-            return;
-          }
+          processor.disconnect();
+          source.disconnect();
 
-          const hfDiagnosticData = await hfResponse.json();
-          console.log("🌲 [VOX ANALYSIS SUCCESS]:", hfDiagnosticData);
+          const wavBuffer = createWavDataView(flattenedBuffer, sampleRate);
+          const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+          //  SAVE TO STATE INSTEAD OF FETCHING IMMEDIATELY
+          setRecordedAudioBlob(audioBlob);
+
         } catch (hfErr) {
-          console.error("Diagnostic uplink processing failure:", hfErr);
+          console.error("🔥 Error buffering audio sequence samples:", hfErr);
+        } finally {
+          audioStream.getTracks().forEach(track => track.stop());
+          if (audioContext.state !== 'closed') {
+            await audioContext.close();
+          }
         }
       };
 
@@ -500,7 +521,20 @@ const AstroMindHome = () => {
           {/* Input Panel */}
           <form onSubmit={handleSendMessage} className="mt-4 flex gap-2 border-t border-lime-800/30 pt-4 backdrop-blur-md">
             <div className="relative flex-1">
-              <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} placeholder={isListening ? "Listening to cabin audio..." : "Type your transmission log here safely..."} className="w-full pl-4 pr-12 py-3 bg-zinc-900/90 border border-lime-800/50 rounded-xl text-white focus:outline-none focus:border-lime-400 transition-all text-sm" disabled={isAiTyping || !!sessionSummary} />
+              <input
+                type="text"
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                placeholder={
+                  isListening
+                    ? "Listening to cabin audio..."
+                    : recordedAudioBlob
+                      ? "🎙️ Voice captured! Press 'Transmit' to submit log..."
+                      : "Type your transmission log here safely..."
+                }
+                className="w-full pl-4 pr-12 py-3 bg-zinc-900/90 border border-lime-800/50 rounded-xl text-white focus:outline-none focus:border-lime-400 transition-all text-sm"
+                disabled={isAiTyping || !!sessionSummary}
+              />
               <button type="button" onClick={startVoiceInput} disabled={isAiTyping || !!sessionSummary} className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${isListening ? 'text-red-400 animate-pulse bg-red-950/30' : 'text-lime-400 hover:bg-lime-900/20'}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3-3.75h6M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" /></svg>
               </button>
