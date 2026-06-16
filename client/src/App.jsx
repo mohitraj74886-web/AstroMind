@@ -149,25 +149,30 @@ const AstroMindHome = () => {
           const hfDiagnosticData = await hfResponse.json();
           console.log("🌲 [SINGLE TURN ANALYSIS SUCCESS]:", hfDiagnosticData);
 
-          // Update tracking array state
+          // 1. Enqueue the data to state
           setAccumulatedVoiceScores(prev => [...prev, hfDiagnosticData]);
 
-          // 🎯 THE FIX: Check if this was turn 1 or turn 2
-          // If we haven't hit the final turn yet, DO NOT return early. 
-          // Let the function flow down into Phase 2 so the LLM prints the next question!
-          if (accumulatedVoiceScores.length < 2) {
-            console.log("🔄 Intermediate audio turn recorded. Passing context down to LLM text generation core...");
+          const realTimeTurnCount = accumulatedVoiceScores.length + 1;
+          console.log(`⏱️ Real-time progress check: Turn ${realTimeTurnCount} just recorded.`);
+
+          if (realTimeTurnCount < 3) {
+            // Turns 1 and 2 flow cleanly down to Phase 2 to get the next question
+            console.log("🔄 Intermediate audio turn recorded. Passing context down to LLM...");
           } else {
-            // It's the 3rd turn! Clear things up and exit immediately so the useEffect handles the grand finale
+            // 🎯 THE FIX FOR TURN 3:
+            // The text input is already cleared and pushed to messages at the VERY TOP of handleSendMessage.
+            // All we need to do here is turn off the typing animation indicator, clear the audio buffer,
+            // and safely exit so your useEffect can print the final big telemetry box!
+            console.log("🏁 Turn 3 reached. Final text is already in chat. Exiting to consolidate...");
+
             setRecordedAudioBlob(null);
-            setIsAiTyping(false);
+            setIsAiTyping(false); // Turns off the "AstroMind is typing..." indicator
             return;
           }
         }
       } catch (hfErr) {
         console.error("Diagnostic uplink processing failure:", hfErr);
-        // Fallback execution path safety toggle if cloud node drops connection
-        if (accumulatedVoiceScores.length >= 2) {
+        if ((accumulatedVoiceScores.length + 1) >= 3) {
           setRecordedAudioBlob(null);
           setIsAiTyping(false);
           return;
