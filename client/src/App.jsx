@@ -10,8 +10,9 @@ const HF_SPACE_URL = "https://moss2110-astromind.hf.space";
 
 // 2. Clear Feature Subrouters
 const LLM_API_URL = `${HF_SPACE_URL}/llm`;     // Maps /llm/start_session, /llm/process_response
-const VOICE_API_URL = `http://127.0.0.1:8000`;   // Maps /voice/diagnose
-const ECHOES_API_URL = "http://127.0.0.1:8003";  // Local physics-delay node
+const VOICE_API_URL = `${HF_SPACE_URL}/llm/voice`;   // Maps /voice/diagnose
+const ECHOES_API_URL = `${HF_SPACE_URL}/llm/echoes`;  // Local physics-delay node
+const SLEEP_API_URL = `${HF_SPACE_URL}/llm/sleep`;  // Local physics-delay node 
 
 const AstroMindHome = () => {
   const videoRef = useRef(null);
@@ -102,7 +103,7 @@ const AstroMindHome = () => {
   // Fetch verified arrivals from the echoes speed-of-light queue on port 8003
   const checkEchoesSubspaceChannel = async () => {
     try {
-      const response = await fetch(`${ECHOES_API_URL}/echoes/inbox/Commander`);
+      const response = await fetch(`${ECHOES_API_URL}/inbox/Commander`);
       if (!response.ok) throw new Error("Channel network exception.");
       const data = await response.json();
 
