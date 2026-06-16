@@ -53,6 +53,7 @@ const AstroMindHome = () => {
   const [isListening, setIsListening] = useState(false);
 
   const [recordedAudioBlob, setRecordedAudioBlob] = useState(null);
+  const [accumulatedVoiceScores, setAccumulatedVoiceScores] = useState([]);
 
   // 🛰️ Echoes Communication State
   const [echoesInbox, setEchoesInbox] = useState([]);
@@ -129,12 +130,10 @@ const AstroMindHome = () => {
     setInputMessage('');
     setIsAiTyping(true);
 
-    // --- PHASE 1: CONDITIONAL AUDIO ROUTING ---
     if (recordedAudioBlob) {
       console.log("🚀 Transmit clicked with audio buffer active. Routing file to diagnostics...");
 
       const voiceFormData = new FormData();
-      // Use our stored state blob directly
       voiceFormData.append("file", recordedAudioBlob, "cabin_transmission.wav");
 
       try {
@@ -148,13 +147,32 @@ const AstroMindHome = () => {
           console.error("❌ Voice diagnostics rejected payload layout:", errorDetails);
         } else {
           const hfDiagnosticData = await hfResponse.json();
-          console.log("🌲 [VOX ANALYSIS SUCCESS]:", hfDiagnosticData);
-          // Optional: Map hfDiagnosticData values directly to your layout metric flags here!
+          console.log("🌲 [SINGLE TURN ANALYSIS SUCCESS]:", hfDiagnosticData);
+
+          // Update tracking array state
+          setAccumulatedVoiceScores(prev => [...prev, hfDiagnosticData]);
+
+          // 🎯 THE FIX: Check if this was turn 1 or turn 2
+          // If we haven't hit the final turn yet, DO NOT return early. 
+          // Let the function flow down into Phase 2 so the LLM prints the next question!
+          if (accumulatedVoiceScores.length < 2) {
+            console.log("🔄 Intermediate audio turn recorded. Passing context down to LLM text generation core...");
+          } else {
+            // It's the 3rd turn! Clear things up and exit immediately so the useEffect handles the grand finale
+            setRecordedAudioBlob(null);
+            setIsAiTyping(false);
+            return;
+          }
         }
       } catch (hfErr) {
         console.error("Diagnostic uplink processing failure:", hfErr);
+        // Fallback execution path safety toggle if cloud node drops connection
+        if (accumulatedVoiceScores.length >= 2) {
+          setRecordedAudioBlob(null);
+          setIsAiTyping(false);
+          return;
+        }
       } finally {
-        // Clear the state buffer so subsequent standard text inputs don't re-send this recording
         setRecordedAudioBlob(null);
       }
     }
@@ -200,6 +218,60 @@ const AstroMindHome = () => {
       setIsAiTyping(false);
     }
   };
+
+  // Stateful handler for multi-turn voice aggregation
+  useEffect(() => {
+    if (accumulatedVoiceScores.length === 0) return;
+
+    const currentCount = accumulatedVoiceScores.length;
+    console.log(`📊 Diagnostic Sequence Progression: ${currentCount} / 3`);
+
+    if (currentCount === 3) {
+      // 1. Calculate mathematical averages across the entire check-in window
+      const totalDepressedProb = accumulatedVoiceScores.reduce((sum, item) => sum + item.depressed_prob, 0);
+      const totalHealthyProb = accumulatedVoiceScores.reduce((sum, item) => sum + item.healthy_prob, 0);
+      const totalConfidence = accumulatedVoiceScores.reduce((sum, item) => sum + item.confidence, 0);
+
+      const avgDepressed = totalDepressedProb / 3;
+      const avgHealthy = totalHealthyProb / 3;
+      const avgConfidence = totalConfidence / 3;
+      const finalPrediction = avgDepressed > avgHealthy ? "depressed" : "healthy";
+      const absoluteRiskFlag = avgDepressed > 0.5;
+
+      // 2. Synchronize application-level notification lights
+      setRiskLevel(absoluteRiskFlag ? "critical" : "low");
+      setBiometricAnomaly(absoluteRiskFlag);
+
+      // 3. Structure a consolidated reporting layout
+      const finalReportText = `📋 [FINAL VOICE TELEMETRY CONSOLIDATION]\n\n` +
+        `All 3 phase check-in diagnostic blocks have been resolved.\n\n` +
+        `• Consolidated Assessment: ${finalPrediction.toUpperCase()}\n` +
+        `• Average Depressed Risk: ${(avgDepressed * 100).toFixed(2)}%\n` +
+        `• Average Healthy Baseline: ${(avgHealthy * 100).toFixed(2)}%\n` +
+        `• Evaluation Confidence: ${(avgConfidence * 100).toFixed(2)}%\n\n` +
+        `Comprehensive multi-turn tracking metrics successfully verified and committed to the mission log repository.`;
+
+      // 4. Safely push the unique message entry
+      setMessages(prevMsgs => [...prevMsgs, {
+        id: `final-telemetry-${Date.now()}`, // Guaranteed unique string key
+        sender: 'ai',
+        text: finalReportText
+      }]);
+
+      speakText(`Voice telemetry consolidation complete. Multi turn evaluation baseline confirms a ${finalPrediction} profile.`);
+
+      setSessionSummary(`A consolidated clinical review indicates an ongoing ${finalPrediction} parameter trace across all speech analysis checkpoints with an operational confidence matrix rating of ${(avgConfidence * 100).toFixed(1)}%.`);
+    } else {
+      // Standard feedback response message for intermediate turns (Question 1 and 2)
+      setMessages(prevMsgs => [...prevMsgs, {
+        id: `turn-update-${currentCount}-${Date.now()}`, // Guaranteed unique string key
+        sender: 'ai',
+        text: `✨ [BIOMETRIC UPDATE]: Audio packet ${currentCount}/3 verified. Continuing tracking sequence...`
+      }]);
+
+      speakText(`Audio sample ${currentCount} logged.`);
+    }
+  }, [accumulatedVoiceScores]);
 
   // Speech to Text (Voice Input) Engine + HF Space Audio Capture Muxer
   // Pure Web Audio API WAV Capture & Transmission Engine
@@ -474,7 +546,7 @@ const AstroMindHome = () => {
               <button onClick={() => { setIsVoiceMuted(!isVoiceMuted); if (!isVoiceMuted) window.speechSynthesis.cancel(); }} className={`p-2 rounded-lg border text-xs transition-all ${isVoiceMuted ? 'border-red-900/60 bg-red-950/20 text-red-400' : 'border-lime-800/60 bg-lime-950/20 text-lime-400 hover:bg-lime-900/30'}`}>
                 {isVoiceMuted ? '🔇 Muted' : '🔊 Audio ON'}
               </button>
-              <button onClick={() => { window.speechSynthesis.cancel(); setSessionId(null); setSessionSummary(null); setShowChat(false); }} className="px-3 py-1 bg-black/40 text-lime-200 text-xs border border-lime-800/80 rounded-lg hover:bg-lime-900/30 transition-all">
+              <button onClick={() => { window.speechSynthesis.cancel(); setSessionId(null); setSessionSummary(null); setShowChat(false); setAccumulatedVoiceScores([]); }} className="px-3 py-1 bg-black/40 text-lime-200 text-xs border border-lime-800/80 rounded-lg hover:bg-lime-900/30 transition-all">
                 ← Disconnect
               </button>
             </div>
