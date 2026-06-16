@@ -1676,6 +1676,120 @@ async def end_session(session_id: str) -> None:
     )
 
 
+import httpx
+from fastapi import UploadFile, File, Form, HTTPException
+from pydantic import BaseModel, Field
+
+# ── A. Sleep Module Schemas (Mirrored for perfect /llm/docs rendering) ──
+class GatewayAstronautVitals(BaseModel):
+    gender: str = Field(..., example="Male", description="Male or Female")
+    age: int = Field(..., example=34)
+    occupation: str = Field(..., example="Astronaut", description="Environmental stress proxy")
+    sleep_duration: float = Field(..., example=5.8, description="Total hours slept")
+    quality_of_sleep: int = Field(..., example=4, description="Subjective rating from 1 to 10")
+    physical_activity_level: int = Field(..., example=75, description="Minutes of daily activity")
+    stress_level: int = Field(..., example=8, description="Perceived cognitive stress level 1 to 10")
+    bmi_category: str = Field(..., example="Normal", description="Normal, Overweight, or Obese")
+    heart_rate: int = Field(..., example=82, description="Nocturnal resting heart rate in BPM")
+    daily_steps: int = Field(..., example=11000)
+    systolic_bp: int = Field(..., example=135, description="Systolic Blood Pressure")
+    diastolic_bp: int = Field(..., example=88, description="Diastolic Blood Pressure")
+
+
+# ── B. Voice Module Router (Port 8000) ──
+@app.post(
+    "/llm/voice/diagnose", 
+    tags=["Voice Module Gateway"],
+    summary="Analyze vocal stress and depression markers (96% Accuracy Model)"
+)
+async def gateway_voice_diagnose(file: UploadFile = File(...)):
+    """Accepts an audio file from the frontend and forwards it to the Wav2Vec2 machine learning microservice on Port 8000."""
+    try:
+        audio_bytes = await file.read()
+        async with httpx.AsyncClient() as client:
+            files = {'file': (file.filename, audio_bytes, file.content_type)}
+            response = await client.post("http://127.0.0.1:8000/diagnose", files=files, timeout=45.0)
+            
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"Voice Service Error: {response.text}")
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice Gateway failed: {str(e)}")
+
+
+# ── C. Sleep Module Router (Port 8001) ──
+@app.post(
+    "/llm/sleep/diagnose", 
+    tags=["Sleep Module Gateway"],
+    summary="Analyze smartwatch telemetry via XGBoost pipeline"
+)
+async def gateway_sleep_diagnose(vitals: GatewayAstronautVitals):
+    """Accepts structural vital markers from the frontend and sends it to the XGBoost inference machine on Port 8001."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post("http://127.0.0.1:8001/sleep/diagnose", json=vitals.dict(), timeout=15.0)
+            
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"Sleep Service Error: {response.text}")
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sleep Gateway failed: {str(e)}")
+
+
+# ── D. Echoes Module Routers (Port 8003) ──
+@app.post(
+    "/llm/echoes/transmit_audio", 
+    tags=["Echoes Comms Gateway"],
+    summary="Transmit a delayed voice note from Earth to space"
+)
+async def gateway_echoes_transmit(
+    sender: str = Form(..., description="e.g., Wife (Earth)"),
+    recipient: str = Form(..., description="e.g., Commander"),
+    distance_millions_km: float = Form(..., description="Current distance in millions of km"),
+    audio_file: UploadFile = File(..., description="The .wav or .mp3 voice recording")
+):
+    """Calculates relativity latency and uploads Earth-side communications to the storage system on Port 8003."""
+    try:
+        audio_bytes = await audio_file.read()
+        form_data = {
+            "sender": sender,
+            "recipient": recipient,
+            "distance_millions_km": str(distance_millions_km)
+        }
+        files = {'audio_file': (audio_file.filename, audio_bytes, audio_file.content_type)}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://127.0.0.1:8003/echoes/transmit_audio", 
+                data=form_data, 
+                files=files, 
+                timeout=30.0
+            )
+            
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"Echoes Transmit Error: {response.text}")
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Echoes Transmit Gateway failed: {str(e)}")
+
+
+@app.get(
+    "/llm/echoes/inbox/{astronaut_name}", 
+    tags=["Echoes Comms Gateway"],
+    summary="Check delivered deep-space messages"
+)
+async def gateway_echoes_inbox(astronaut_name: str):
+    """Fetches incoming voice items that have crossed the speed-of-light delay threshold."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"http://127.0.0.1:8003/echoes/inbox/{astronaut_name}", timeout=15.0)
+            
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"Echoes Inbox Error: {response.text}")
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Echoes Inbox Gateway failed: {str(e)}")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
